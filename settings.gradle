@@ -1,7 +1,16 @@
 pluginManagement {
     repositories {
-        maven { name = 'Fabric'; url = 'https://maven.fabricmc.net/' }
+        maven {
+            name = 'Fabric'
+            url = 'https://maven.fabricmc.net/'
+        }
         gradlePluginPortal()
     }
 }
+
 rootProject.name = 'WorldDownloader'
+
+// one subproject per supported Minecraft version
+include '1.21.4'
+include '1.21.11'
+include '26.2'

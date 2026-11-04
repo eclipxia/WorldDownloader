@@ -10,20 +10,21 @@ Targets **26.2, 1.21.11 and 1.21.4** (mojmap, Fabric, RusherHack API `<mc>-SNAPS
 - Nothing is committed to git.
 
 ## Build
+Multi-project Gradle build, same layout as `~/git/master` (auto-raid): `common/` plus one subproject per Minecraft version.
 ```
-./gradlew -Pmc=1.21.4  build
-./gradlew -Pmc=1.21.11 build
-./gradlew -Pmc=26.2    build
+./gradlew build                 # every version
+./gradlew :1.21.4:build         # one version (also :1.21.11, :26.2)
 ```
-Jars land in `build/libs/WorldDownloader-<ver>+<mc>.jar`. Install into `rusherhack/plugins/`, launch with
+Jars land in `<mc>/build/libs/WorldDownloader-<mc>-<ver>.jar`. Install into `rusherhack/plugins/`, launch with
 `-Drusherhack.enablePlugins=true`, use `*reload` after changes.
 
-- `version/<mc>/version.properties` holds per-version Java version, Parchment mappings, and an `unobfuscated` flag.
-- 26.2 is unobfuscated, so it uses the `net.fabricmc.fabric-loom` plugin. The others use `fabric-loom-remap`.
+- Root `gradle.properties` holds `plugin_name`, `version`, `maven_group`. `<mc>/gradle.properties` holds Java version, Parchment mappings, loader version.
+- 26.2 is unobfuscated (no mappings, no remap). The others use Mojmap + Parchment.
 - Loom 1.19.3 requires Gradle 9.8.0 (set in `gradle/wrapper/gradle-wrapper.properties`).
-- `common/` is shared code (`java/`, `resources/`). `version/<mc>/java` is added to the source set for the selected version.
+- `common/src/main` is shared code and resources, compiled into every version. `<mc>/src/main/java` holds the per-version shims.
+- `*:updateAccessWidener` fetches the RusherHack access widener; `:<mc>:runPlugin` starts a dev client (needs `<mc>/lib/rusherhack-loader.jar`, gitignored).
 
-## Layout (`src/main/java/org/worlddownloader`)
+## Layout (`common/src/main/java/org/worlddownloader`)
 | File | Role |
 |---|---|
 | `WorldDownloaderPlugin` | Registers module and command |
@@ -33,7 +34,7 @@ Jars land in `build/libs/WorldDownloader-<ver>+<mc>.jar`. Install into `rusherha
 | `ChunkSerializer` | LevelChunk to vanilla chunk NBT (palettes, packed longs, block entities) |
 | `RegionWriter` | Own `.mca` writer with sector allocation, zlib |
 | `Chunks` | `ChunkPos` x/z helper (fields are private on 26.2) |
-| `McCompat` (per `version/<mc>/java`) | `dataVersion()` and `versionName()`, the only API that differs so far |
+| `McCompat` (per `<mc>/src/main/java`) | `dataVersion()` and `versionName()`, the only API that differs so far |
 
 ## Known gaps / next steps
 1. **Test in-game on all three versions.** Likeliest failures are `BlockEntity.saveWithFullMetadata(registryAccess)` (may differ on 1.21.11 / 26.2), `level.dat` field names for newer versions, and `Holder.getRegisteredName()` for biomes.
