@@ -99,10 +99,14 @@ public class RegionWriter implements Closeable {
 		this.file.close();
 	}
 	
+	/** zlib at a low level: region files get slightly bigger, but compression costs far less CPU. */
 	public static byte[] compress(byte[] raw) throws IOException {
 		final ByteArrayOutputStream out = new ByteArrayOutputStream(raw.length / 2 + 64);
-		try(var def = new java.util.zip.DeflaterOutputStream(out)) {
+		final java.util.zip.Deflater deflater = new java.util.zip.Deflater(2);
+		try(var def = new java.util.zip.DeflaterOutputStream(out, deflater)) {
 			def.write(raw);
+		} finally {
+			deflater.end();
 		}
 		return out.toByteArray();
 	}

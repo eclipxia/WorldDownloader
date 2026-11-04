@@ -9,42 +9,57 @@ import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.StringTag;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.biome.Biome;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.chunk.PalettedContainer;
 
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 
 /**
- * Converts a client side LevelChunk into the vanilla chunk NBT format.
- * Must run on the main thread (reads live chunk data); the result is safe to hand to other threads.
+ * Converts a client side LevelChunk into the vanilla chunk NBT format in two steps:
+ * {@link #snapshot} copies the live data and must run on the main thread (it is cheap),
+ * {@link #serialize} does the expensive palette/NBT work and is safe to run on any thread.
  */
 public final class ChunkSerializer {
 	private ChunkSerializer() {}
 	
-	public static CompoundTag serialize(Level level, LevelChunk chunk, boolean blockEntities) {
-		final CompoundTag root = new CompoundTag();
-		root.putInt("DataVersion", McCompat.dataVersion());
-		root.putInt("xPos", Chunks.x(chunk.getPos()));
-		root.putInt("zPos", Chunks.z(chunk.getPos()));
-		root.putInt("yPos", chunk.getMinSectionY());
-		root.putString("Status", "minecraft:full");
-		root.putLong("LastUpdate", level.getGameTime());
-		root.putLong("InhabitedTime", 0L);
-		root.putByte("isLightOn", (byte) 0); // let the game relight on load
+	/** Immutable copy of everything needed to serialize a chunk. */
+	public static final class Snapshot {
+		private final int dataVersion, x, z, minSectionY;
+		private final long gameTime;
+		/** per section; null entry = section only contains air */
+		private final List<PalettedContainer<BlockState>> states;
+		private final List<PalettedContainer<Holder<Biome>>> biomes;
+		private final ListTag blockEntities;
 		
-		final ListTag sections = new ListTag();
-		final LevelChunkSection[] arr = chunk.getSections();
-		for(int i = 0; i < arr.length; i++) {
-			final CompoundTag s = serializeSection(arr[i]);
-			s.putByte("Y", (byte) (chunk.getMinSectionY() + i));
-			sections.add(s);
+		private Snapshot(int dataVersion, int x, int z, int minSectionY, long gameTime,
+		                 List<PalettedContainer<BlockState>> states, List<PalettedContainer<Holder<Biome>>> biomes, ListTag blockEntities) {
+			this.dataVersion = dataVersion;
+			this.x = x;
+			this.z = z;
+			this.minSectionY = minSectionY;
+			this.gameTime = gameTime;
+			this.states = states;
+			this.biomes = biomes;
+			this.blockEntities = blockEntities;
 		}
-		root.put("sections", sections);
+	}
+	
+	/** Main thread only. Copies the palette storage (no per block work). */
+	public static Snapshot snapshot(Level level, LevelChunk chunk, boolean blockEntities) {
+		final LevelChunkSection[] arr = chunk.getSections();
+		final List<PalettedContainer<BlockState>> states = new ArrayList<>(arr.length);
+		final List<PalettedContainer<Holder<Biome>>> biomes = new ArrayList<>(arr.length);
+		for(LevelChunkSection section : arr) {
+			states.add(section.hasOnlyAir() ? null : section.getStates().copy());
+			biomes.add(section.getBiomes().copy());
+		}
 		
 		final ListTag beList = new ListTag();
 		if(blockEntities) {
@@ -56,56 +71,88 @@ public final class ChunkSerializer {
 				}
 			}
 		}
-		root.put("block_entities", beList);
+		return new Snapshot(McCompat.dataVersion(), Chunks.x(chunk.getPos()), Chunks.z(chunk.getPos()),
+				chunk.getMinSectionY(), level.getGameTime(), states, biomes, beList);
+	}
+	
+	/** Any thread. */
+	public static CompoundTag serialize(Snapshot snap) {
+		final CompoundTag root = new CompoundTag();
+		root.putInt("DataVersion", snap.dataVersion);
+		root.putInt("xPos", snap.x);
+		root.putInt("zPos", snap.z);
+		root.putInt("yPos", snap.minSectionY);
+		root.putString("Status", "minecraft:full");
+		root.putLong("LastUpdate", snap.gameTime);
+		root.putLong("InhabitedTime", 0L);
+		root.putByte("isLightOn", (byte) 0); // let the game relight on load
+		
+		final ListTag sections = new ListTag();
+		for(int i = 0; i < snap.states.size(); i++) {
+			final CompoundTag s = serializeSection(snap.states.get(i), snap.biomes.get(i));
+			s.putByte("Y", (byte) (snap.minSectionY + i));
+			sections.add(s);
+		}
+		root.put("sections", sections);
+		root.put("block_entities", snap.blockEntities);
 		return root;
 	}
 	
-	private static CompoundTag serializeSection(LevelChunkSection section) {
+	private static CompoundTag serializeSection(PalettedContainer<BlockState> states, PalettedContainer<Holder<Biome>> biomeContainer) {
 		final CompoundTag out = new CompoundTag();
 		
 		//blocks: index = y << 8 | z << 4 | x
-		final Map<BlockState, Integer> blockIds = new HashMap<>();
-		final List<BlockState> blockPalette = new ArrayList<>();
-		final int[] blocks = new int[4096];
-		for(int y = 0; y < 16; y++) {
-			for(int z = 0; z < 16; z++) {
-				for(int x = 0; x < 16; x++) {
-					final BlockState state = section.getBlockState(x, y, z);
-					Integer id = blockIds.get(state);
-					if(id == null) {
-						id = blockPalette.size();
-						blockIds.put(state, id);
-						blockPalette.add(state);
+		final CompoundTag blockStates = new CompoundTag();
+		final ListTag blockPaletteTag = new ListTag();
+		if(states == null) {
+			blockPaletteTag.add(NbtUtils.writeBlockState(Blocks.AIR.defaultBlockState()));
+		} else {
+			final Map<BlockState, Integer> blockIds = new IdentityHashMap<>();
+			final List<BlockState> blockPalette = new ArrayList<>();
+			final int[] blocks = new int[4096];
+			BlockState last = null;
+			int lastId = 0;
+			for(int y = 0; y < 16; y++) {
+				for(int z = 0; z < 16; z++) {
+					for(int x = 0; x < 16; x++) {
+						final BlockState state = states.get(x, y, z);
+						if(state != last) {
+							Integer id = blockIds.get(state);
+							if(id == null) {
+								id = blockPalette.size();
+								blockIds.put(state, id);
+								blockPalette.add(state);
+							}
+							last = state;
+							lastId = id;
+						}
+						blocks[(y << 8) | (z << 4) | x] = lastId;
 					}
-					blocks[(y << 8) | (z << 4) | x] = id;
 				}
 			}
+			for(BlockState state : blockPalette) {
+				blockPaletteTag.add(NbtUtils.writeBlockState(state));
+			}
+			if(blockPalette.size() > 1) {
+				blockStates.put("data", new LongArrayTag(pack(blocks, Math.max(4, bitsFor(blockPalette.size())))));
+			}
 		}
-		final ListTag blockPaletteTag = new ListTag();
-		for(BlockState state : blockPalette) {
-			blockPaletteTag.add(NbtUtils.writeBlockState(state));
-		}
-		final CompoundTag blockStates = new CompoundTag();
 		blockStates.put("palette", blockPaletteTag);
-		if(blockPalette.size() > 1) {
-			blockStates.put("data", new LongArrayTag(pack(blocks, Math.max(4, bitsFor(blockPalette.size())))));
-		}
 		out.put("block_states", blockStates);
 		
 		//biomes: 4x4x4 cells, index = y << 4 | z << 2 | x
-		final Map<String, Integer> biomeIds = new HashMap<>();
+		final Map<Holder<Biome>, Integer> biomeIds = new IdentityHashMap<>();
 		final List<String> biomePalette = new ArrayList<>();
 		final int[] biomes = new int[64];
 		for(int y = 0; y < 4; y++) {
 			for(int z = 0; z < 4; z++) {
 				for(int x = 0; x < 4; x++) {
-					final Holder<Biome> holder = section.getNoiseBiome(x, y, z);
-					final String name = holder.getRegisteredName();
-					Integer id = biomeIds.get(name);
+					final Holder<Biome> holder = biomeContainer.get(x, y, z);
+					Integer id = biomeIds.get(holder);
 					if(id == null) {
 						id = biomePalette.size();
-						biomeIds.put(name, id);
-						biomePalette.add(name);
+						biomeIds.put(holder, id);
+						biomePalette.add(holder.getRegisteredName());
 					}
 					biomes[(y << 4) | (z << 2) | x] = id;
 				}

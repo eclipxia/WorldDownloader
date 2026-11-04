@@ -43,7 +43,7 @@ Jars land in `<mc>/build/libs/WorldDownloader-<mc>-<ver>.jar`. Install into `rus
 4. Heightmaps are not written. Custom dimensions are skipped (only overworld, nether, end).
 5. `level.dat` writes both `SpawnX/Y/Z` and the newer `spawn` compound. Verify the game accepts it on each version.
 6. Re-save on unload relies on `getChunkNow` still returning the chunk. Verify this. `*wdl resave` is the manual fallback.
-7. Chunks are serialized on the main thread (about 24 sections x 4096 blocks each), so profile for stutter when many chunks load at once.
+7. Performance: the main thread only snapshots (copies palette containers, serializes block entities). Palette/NBT work, zlib (level 2) and disk IO run on a low priority IO thread. Queued snapshots are coalesced per chunk and unchanged chunks (CRC of the NBT) are not rewritten. Not yet profiled in-game.
 8. No README, no CI, no release packaging. Optionally add a task that builds all three jars.
 
 ## API notes

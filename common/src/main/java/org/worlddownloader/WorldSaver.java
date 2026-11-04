@@ -13,11 +13,13 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.zip.CRC32;
 
 /**
  * One download session = one world save folder.
@@ -31,9 +33,18 @@ public class WorldSaver {
 	private final ExecutorService io = Executors.newSingleThreadExecutor(r -> {
 		final Thread t = new Thread(r, "WorldDownloader-IO");
 		t.setDaemon(true);
+		t.setPriority(Thread.MIN_PRIORITY);
 		return t;
 	});
 	private final Map<Path, RegionWriter> writers = new HashMap<>();
+	/** newest snapshot per chunk that has not been written yet; a newer snapshot replaces an older queued one */
+	private final Map<ChunkKey, Job> pending = new LinkedHashMap<>();
+	/** checksum of the last data written per chunk (IO thread only), used to skip unchanged chunks */
+	private final Map<ChunkKey, Long> lastWritten = new HashMap<>();
+	
+	private record ChunkKey(String dim, int x, int z) {}
+	
+	private record Job(Path regionFile, ChunkSerializer.Snapshot snapshot) {}
 	private final AtomicInteger saved = new AtomicInteger();
 	private final AtomicInteger failed = new AtomicInteger();
 	
@@ -64,40 +75,72 @@ public class WorldSaver {
 		return null;
 	}
 	
-	/** Main thread only. */
+	/** Main thread only. Only takes a cheap snapshot; serialization, compression and disk IO happen on the IO thread. */
 	public void save(Level level, LevelChunk chunk) {
 		final String dim = dimensionFolder(level);
 		if(dim == null) {
 			return;
 		}
 		final ChunkPos pos = chunk.getPos();
-		final byte[] payload;
+		final ChunkSerializer.Snapshot snapshot;
 		try {
-			final CompoundTag tag = ChunkSerializer.serialize(level, chunk, this.blockEntities);
-			final ByteArrayOutputStream bytes = new ByteArrayOutputStream(32 * 1024);
-			try(DataOutputStream out = new DataOutputStream(bytes)) {
-				NbtIo.write(tag, out);
-			}
-			payload = RegionWriter.compress(bytes.toByteArray());
+			snapshot = ChunkSerializer.snapshot(level, chunk, this.blockEntities);
 		} catch(Exception e) {
 			this.failed.incrementAndGet();
 			return;
 		}
 		
 		final Path regionFile = this.root.resolve(dim).resolve("region").resolve("r." + (Chunks.x(pos) >> 5) + "." + (Chunks.z(pos) >> 5) + ".mca");
-		this.io.execute(() -> {
-			try {
-				RegionWriter writer = this.writers.get(regionFile);
-				if(writer == null) {
-					writer = new RegionWriter(regionFile);
-					this.writers.put(regionFile, writer);
-				}
-				writer.write(Chunks.x(pos) & 31, Chunks.z(pos) & 31, payload);
-				this.saved.incrementAndGet();
-			} catch(IOException e) {
-				this.failed.incrementAndGet();
+		final ChunkKey key = new ChunkKey(dim, Chunks.x(pos), Chunks.z(pos));
+		final boolean queued;
+		synchronized(this.pending) {
+			queued = this.pending.put(key, new Job(regionFile, snapshot)) == null;
+		}
+		if(queued) {
+			//exactly one task per pending entry; a replaced entry is already covered by its existing task
+			this.io.execute(this::processNext);
+		}
+	}
+	
+	/** IO thread. */
+	private void processNext() {
+		final ChunkKey key;
+		final Job job;
+		synchronized(this.pending) {
+			final var it = this.pending.entrySet().iterator();
+			if(!it.hasNext()) {
+				return;
 			}
-		});
+			final var entry = it.next();
+			key = entry.getKey();
+			job = entry.getValue();
+			it.remove();
+		}
+		try {
+			final ByteArrayOutputStream bytes = new ByteArrayOutputStream(32 * 1024);
+			try(DataOutputStream out = new DataOutputStream(bytes)) {
+				NbtIo.write(ChunkSerializer.serialize(job.snapshot()), out);
+			}
+			final byte[] raw = bytes.toByteArray();
+			final CRC32 crc = new CRC32();
+			crc.update(raw);
+			final Long previous = this.lastWritten.get(key);
+			if(previous != null && previous == crc.getValue()) {
+				return; //unchanged since it was last written
+			}
+			final byte[] payload = RegionWriter.compress(raw);
+			
+			RegionWriter writer = this.writers.get(job.regionFile());
+			if(writer == null) {
+				writer = new RegionWriter(job.regionFile());
+				this.writers.put(job.regionFile(), writer);
+			}
+			writer.write(key.x() & 31, key.z() & 31, payload);
+			this.lastWritten.put(key, crc.getValue());
+			this.saved.incrementAndGet();
+		} catch(Exception e) {
+			this.failed.incrementAndGet();
+		}
 	}
 	
 	/** Writes level.dat, flushes and closes all files. Blocks briefly while pending writes drain. */
