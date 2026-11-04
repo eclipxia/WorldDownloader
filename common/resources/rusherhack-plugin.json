@@ -1,7 +1,7 @@
 {
   "Plugin-Class": "org.worlddownloader.WorldDownloaderPlugin",
   "Name": "${project.plugin_name}",
-  "Version": "${project.plugin_version}",
+  "Version": "${pluginVersion}",
   "Description": "Saves the chunks you see to a local Minecraft world save",
   "Authors": ["eclipxia"],
   "Minecraft-Versions": ["${mc}"]

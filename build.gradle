@@ -19,7 +19,8 @@ def parchmentVer = vprops.getProperty('parchment_version')
 
 apply plugin: (unobf ? 'net.fabricmc.fabric-loom' : 'net.fabricmc.fabric-loom-remap')
 
-version = "${project.plugin_version}+${mc}"
+def pluginVersion = project.version as String
+project.version = "${pluginVersion}+${mc}"
 group = project.maven_group
 base.archivesName = project.plugin_name
 
@@ -69,7 +70,7 @@ tasks.withType(JavaCompile).configureEach {
 processResources {
 	inputs.property 'mc', mc
 	filesMatching("rusherhack-plugin.json") {
-		expand(project: project, mc: mc)
+		expand(project: project, mc: mc, pluginVersion: pluginVersion)
 	}
 }
 
