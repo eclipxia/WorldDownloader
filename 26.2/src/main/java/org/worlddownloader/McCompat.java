@@ -2,7 +2,7 @@ package org.worlddownloader;
 
 import net.minecraft.SharedConstants;
 
-/** Version specific Minecraft accessors. Same API in every src/mc-* dir. */
+/** Version specific Minecraft accessors. Same API in every version module. */
 public final class McCompat {
 	private McCompat() {}
 	
@@ -12,5 +12,10 @@ public final class McCompat {
 	
 	public static String versionName() {
 		return SharedConstants.getCurrentVersion().name();
+	}
+	
+	/** 26.x moved dimensions to dimensions/minecraft/<dim>/ and world generation settings out of level.dat. */
+	public static boolean modernSaveFormat() {
+		return true;
 	}
 }

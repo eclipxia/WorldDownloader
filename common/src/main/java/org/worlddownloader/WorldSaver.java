@@ -57,9 +57,10 @@ public class WorldSaver {
 	
 	/** @return folder of the dimension relative to the world root, or null if unsupported */
 	private static String dimensionFolder(Level level) {
-		if(level.dimension() == Level.OVERWORLD) return "";
-		if(level.dimension() == Level.NETHER) return "DIM-1";
-		if(level.dimension() == Level.END) return "DIM1";
+		final boolean modern = McCompat.modernSaveFormat();
+		if(level.dimension() == Level.OVERWORLD) return modern ? "dimensions/minecraft/overworld" : "";
+		if(level.dimension() == Level.NETHER) return modern ? "dimensions/minecraft/the_nether" : "DIM-1";
+		if(level.dimension() == Level.END) return modern ? "dimensions/minecraft/the_end" : "DIM1";
 		return null;
 	}
 	
@@ -136,15 +137,24 @@ public class WorldSaver {
 		data.putString("LevelName", this.levelName);
 		data.putInt("GameType", 1);
 		data.putBoolean("allowCommands", true);
-		data.putBoolean("hardcore", false);
 		data.putBoolean("initialized", true);
 		data.putLong("LastPlayed", System.currentTimeMillis());
-		data.putByte("Difficulty", (byte) 2);
 		
-		//spawn: pre 1.21.9 uses SpawnX/Y/Z, newer versions use a "spawn" compound. Extra tags are ignored.
-		data.putInt("SpawnX", spawn.getX());
-		data.putInt("SpawnY", spawn.getY());
-		data.putInt("SpawnZ", spawn.getZ());
+		if(McCompat.modernSaveFormat()) {
+			final CompoundTag difficulty = new CompoundTag();
+			difficulty.putString("difficulty", "normal");
+			difficulty.putBoolean("hardcore", false);
+			difficulty.putBoolean("locked", false);
+			data.put("difficulty_settings", difficulty);
+		} else {
+			data.putBoolean("hardcore", false);
+			data.putByte("Difficulty", (byte) 2);
+			data.putInt("SpawnX", spawn.getX());
+			data.putInt("SpawnY", spawn.getY());
+			data.putInt("SpawnZ", spawn.getZ());
+		}
+		
+		//spawn compound is used by 1.21.9 and newer
 		final CompoundTag spawnTag = new CompoundTag();
 		spawnTag.putIntArray("pos", new int[]{spawn.getX(), spawn.getY(), spawn.getZ()});
 		spawnTag.putString("dimension", "minecraft:overworld");
@@ -156,5 +166,44 @@ public class WorldSaver {
 		root.put("Data", data);
 		Files.createDirectories(this.root);
 		NbtIo.writeCompressed(root, this.root.resolve("level.dat"));
+		if(McCompat.modernSaveFormat()) {
+			this.writeWorldGenSettings();
+		}
+	}
+	
+	/** 26.x stores the world generation settings in data/minecraft/world_gen_settings.dat instead of level.dat. */
+	private void writeWorldGenSettings() throws IOException {
+		final CompoundTag dimensions = new CompoundTag();
+		dimensions.put("minecraft:overworld", dimension("minecraft:overworld", "minecraft:overworld", "minecraft:multi_noise", "minecraft:overworld"));
+		dimensions.put("minecraft:the_nether", dimension("minecraft:the_nether", "minecraft:nether", "minecraft:multi_noise", "minecraft:nether"));
+		dimensions.put("minecraft:the_end", dimension("minecraft:the_end", "minecraft:end", "minecraft:the_end", null));
+		
+		final CompoundTag data = new CompoundTag();
+		data.putByte("bonus_chest", (byte) 0);
+		data.putLong("seed", 0L);
+		data.putByte("generate_structures", (byte) 1);
+		data.put("dimensions", dimensions);
+		
+		final CompoundTag file = new CompoundTag();
+		file.put("data", data);
+		file.putInt("DataVersion", McCompat.dataVersion());
+		
+		final Path dir = this.root.resolve("data").resolve("minecraft");
+		Files.createDirectories(dir);
+		NbtIo.writeCompressed(file, dir.resolve("world_gen_settings.dat"));
+	}
+	
+	private static CompoundTag dimension(String type, String settings, String biomeSourceType, String preset) {
+		final CompoundTag biomeSource = new CompoundTag();
+		if(preset != null) biomeSource.putString("preset", preset);
+		biomeSource.putString("type", biomeSourceType);
+		final CompoundTag generator = new CompoundTag();
+		generator.putString("settings", settings);
+		generator.put("biome_source", biomeSource);
+		generator.putString("type", "minecraft:noise");
+		final CompoundTag dim = new CompoundTag();
+		dim.put("generator", generator);
+		dim.putString("type", type);
+		return dim;
 	}
 }
