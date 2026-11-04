@@ -123,3 +123,19 @@ lib/
 build/
 run/
 .kotlin/
+
+# Claude Code local files
+.claude/
+
+# Other IDEs (VS Code, Eclipse)
+.vscode/
+.classpath
+.project
+.settings/
+bin/
+
+# Loom / Minecraft dev run artifacts
+.fabric/
+logs/
+saves/
+crash-reports/
