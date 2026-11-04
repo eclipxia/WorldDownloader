@@ -4,10 +4,10 @@ RusherHack plugin that saves the chunks the server sends you into a local single
 Targets **26.2, 1.21.11 and 1.21.4** (mojmap, Fabric, RusherHack API `<mc>-SNAPSHOT`).
 
 ## Status (2026-11-04)
-- All three versions **compile and build**. Nothing has been run in-game yet.
+- All three versions **compile and build**.
+- **26.2:** a downloaded world saves and opens in-game (after switching to the 26.x save format: `dimensions/minecraft/<dim>/`, `data/minecraft/world_gen_settings.dat`, `difficulty_settings` in `level.dat`). Chunk contents not yet inspected in detail.
+- **1.21.4 / 1.21.11:** not run in-game. They may need a `WorldGenSettings` compound in `level.dat`.
 - `RegionWriter` was round-trip tested offline (write, rewrite larger, read back, zlib decompress).
-- `ChunkSerializer` / `WorldSaver` / `level.dat` output are **untested** against a real client.
-- Nothing is committed to git.
 
 ## Build
 Multi-project Gradle build, same layout as `~/git/master` (auto-raid): `common/` plus one subproject per Minecraft version.
