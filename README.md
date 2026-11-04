@@ -67,6 +67,13 @@ Jars end up in `<version>/build/libs/`. Run `./gradlew :<version>:updateAccessWi
 
 Copy `rusherhack-loader.jar` into `<version>/lib/` (gitignored), then `./gradlew :1.21.11:runPlugin`.
 
+## Documentation
+
+- [docs/architecture.md](docs/architecture.md): data flow, classes, threading and performance design
+- [docs/save-format.md](docs/save-format.md): what is written, and how 1.21.x and 26.x differ
+- [docs/development.md](docs/development.md): building, dev client, testing, adding a version
+- [HANDOFF.md](HANDOFF.md): current status and known gaps
+
 ## License
 
 See [LICENSE](LICENSE).

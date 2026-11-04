@@ -1,5 +1,7 @@
 # WorldDownloader – handoff
 
+Detailed docs are in `docs/` (architecture, save format, development).
+
 RusherHack plugin that saves the chunks the server sends you into a local singleplayer world (`.minecraft/saves/<name>/`).
 Targets **26.2, 1.21.11 and 1.21.4** (mojmap, Fabric, RusherHack API `<mc>-SNAPSHOT`).
 
