@@ -8,10 +8,10 @@ plugins {
 import java.util.Properties
 
 // Select the Minecraft version with -Pmc=<version>. Each version gets its own jar,
-// built from src/main + src/mc-<version> (version specific shims).
+// built from common/ + version/<version> (version specific shims).
 def mc = (project.findProperty('mc') ?: project.default_mc) as String
 def vprops = new Properties()
-file("versions/${mc}.properties").withInputStream { vprops.load(it) }
+file("version/${mc}/version.properties").withInputStream { vprops.load(it) }
 def unobf = vprops.getProperty('unobfuscated') == 'true'
 def javaVer = vprops.getProperty('java_version')
 def parchmentVer = vprops.getProperty('parchment_version')
@@ -52,8 +52,8 @@ dependencies {
 	rusherhackApi "org.rusherhack:rusherhack-api:${mc}-SNAPSHOT"
 }
 
-sourceSets.main.java.srcDir("src/mc-${mc}/java")
-sourceSets.main.resources.srcDir("src/mc-${mc}/resources")
+sourceSets.main.java.setSrcDirs(["common/java", "version/${mc}/java"])
+sourceSets.main.resources.setSrcDirs(["common/resources", "version/${mc}/resources"])
 
 java {
 	sourceCompatibility = JavaVersion.toVersion(javaVer)

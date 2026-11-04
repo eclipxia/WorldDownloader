@@ -18,10 +18,10 @@ Targets **26.2, 1.21.11 and 1.21.4** (mojmap, Fabric, RusherHack API `<mc>-SNAPS
 Jars land in `build/libs/WorldDownloader-<ver>+<mc>.jar`. Install into `rusherhack/plugins/`, launch with
 `-Drusherhack.enablePlugins=true`, use `*reload` after changes.
 
-- `versions/<mc>.properties` holds per-version Java version, Parchment mappings, and an `unobfuscated` flag.
+- `version/<mc>/version.properties` holds per-version Java version, Parchment mappings, and an `unobfuscated` flag.
 - 26.2 is unobfuscated, so it uses the `net.fabricmc.fabric-loom` plugin. The others use `fabric-loom-remap`.
 - Loom 1.19.3 requires Gradle 9.8.0 (set in `gradle/wrapper/gradle-wrapper.properties`).
-- `src/main` is shared code. `src/mc-<mc>/java` is added to the source set for the selected version.
+- `common/` is shared code (`java/`, `resources/`). `version/<mc>/java` is added to the source set for the selected version.
 
 ## Layout (`src/main/java/org/worlddownloader`)
 | File | Role |
@@ -33,7 +33,7 @@ Jars land in `build/libs/WorldDownloader-<ver>+<mc>.jar`. Install into `rusherha
 | `ChunkSerializer` | LevelChunk to vanilla chunk NBT (palettes, packed longs, block entities) |
 | `RegionWriter` | Own `.mca` writer with sector allocation, zlib |
 | `Chunks` | `ChunkPos` x/z helper (fields are private on 26.2) |
-| `McCompat` (per `src/mc-*`) | `dataVersion()` and `versionName()`, the only API that differs so far |
+| `McCompat` (per `version/<mc>/java`) | `dataVersion()` and `versionName()`, the only API that differs so far |
 
 ## Known gaps / next steps
 1. **Test in-game on all three versions.** Likeliest failures are `BlockEntity.saveWithFullMetadata(registryAccess)` (may differ on 1.21.11 / 26.2), `level.dat` field names for newer versions, and `Holder.getRegisteredName()` for biomes.
